@@ -1,3 +1,12 @@
+[Trang Chủ](https://qlgd.hpu.edu.vn/) [Hướng dẫn sử dụng](https://qlgd.hpu.edu.vn/huongdan.htm) [Đào tạo](https://qlgd.hpu.edu.vn/daotao) [Khoa/Bộ môn](https://qlgd.hpu.edu.vn/khoa) [Thanh tra](https://qlgd.hpu.edu.vn/thanhtra)
+
+Đăng nhập
+
+Sinh viênLớp môn họcLịch trình
+
+Sinh viên
+
+[Tra cứu](https://qlgd.hpu.edu.vn/search?type=1&q=)
 
 | STT | Họ và tên | Mã sinh viên | Lớp hành chính | Số lớp môn | Số tiết vắng |
 | --- | --- | --- | --- | --- | --- |
@@ -52,4 +61,6 @@
 | 48 | Hà Đức Trường | [2412102015](https://qlgd.hpu.edu.vn/sinh_vien/84) | DC2801 | 12 | 5 |
 | 49 | Phạm Trọng Việt | [2312102020](https://qlgd.hpu.edu.vn/sinh_vien/74) | DC2701 | 11 | 6 |
 | 50 | Vũ Lâm Vũ | [2412102030](https://qlgd.hpu.edu.vn/sinh_vien/98) | DC2801 | 12 | 27 |
+
+
 
