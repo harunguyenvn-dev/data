@@ -9,7 +9,7 @@ Bùi Văn	Dũng
 Cao Đắc	Đạt
 Phạm Thành Đạt
 Nguyễn Ngọc	Đức
-Hoàng Thị	Hân
+Hoàng Thị Hân
 Phạm Văn Hân
 Nguyễn Chí Hiếu
 Hà Đức Hiếu
@@ -17,13 +17,12 @@ Nguyễn Trung Hiếu
 Phạm Hoàng Hiệp
 Nguyễn Tiến	Hoàng
 Phạm Văn Hoàng
-Ngô Hoàng	Huy
-Phạm Quốc	Huy
+Ngô Hoàng Huy
+Phạm Quốc Huy
 Phạm Khánh Hưng
 Trần Duy Khánh
 Lê Đình Minh Khôi
 Nguyễn Hoàng Long
-Trần Khánh Ly
 Lê Minh
 Lê Đức Minh
 Nguyễn Phú Minh
