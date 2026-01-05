@@ -29,7 +29,7 @@ Nguyễn Phú Minh
 Nguyễn Thị Ngọc	Minh
 Phạm Trung Nghĩa
 Đỗ Khánh Nguyên
-Hoàng Thị	Nhiên
+Hoàng Thị Nhiên
 Vũ Đức Phong
 Lê Thế Hoàng Phong
 Nguyễn Mai Phương
@@ -40,4 +40,4 @@ Nguyễn Công	Tiến
 Nguyễn Văn Trường
 Tô Anh Tuấn
 Đỗ Anh Tú
-Nguyễn Quang	Vinh
+Nguyễn Quang Vinh
