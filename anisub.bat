@@ -1,310 +1,410 @@
 @echo off
 setlocal EnableDelayedExpansion
-title Anisub CLI - Windows Edition
 chcp 65001 >nul
 
-:: --- CONFIGURATION ---
-set "CONFIG_DIR=%USERPROFILE%\.config\anisub_cli"
+:: --- CẤU HÌNH & DATA ---
+set "USER_HOME=%USERPROFILE%"
+set "CONFIG_DIR=%USER_HOME%\.config\anisub_cli"
 set "CONFIG_FILE=%CONFIG_DIR%\config.cfg"
 set "HISTORY_FILE=%CONFIG_DIR%\history.log"
 set "FAVORITES_FILE=%CONFIG_DIR%\favorites.txt"
+set "TEMP_JSON=%TEMP%\anisub_temp.json"
+set "TEMP_LIST=%TEMP%\anisub_list.txt"
 
-:: Thư mục lưu dữ liệu tạm
-set "TEMP_DIR=%TEMP%\anisub_temp"
-if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
+:: File Local Data
+set "SCRIPT_DIR=%~dp0"
+set "LOCAL_DATA_FILE=%SCRIPT_DIR%assets\aniw_export_2026-01-14.csv"
 
-:: --- DEFAULTS ---
+:: --- MẶC ĐỊNH ---
 set "DEFAULT_PLAYER=mpv"
-set "DEFAULT_DOWNLOAD_DIR=%USERPROFILE%\Downloads\anime"
+set "DEFAULT_DOWNLOAD_DIR=%USER_HOME%\Downloads\anime"
+set "PLAYER="
+set "DOWNLOAD_DIR="
 
-:: --- INITIALIZATION ---
-call :check_dependencies
-if errorlevel 1 goto :eof
+:: Khởi tạo cấu hình khi chạy
+call :ensure_config_dir
 call :load_config
 
-:main_menu
+:: Kiểm tra công cụ cần thiết
+call :check_dependencies
+if errorlevel 1 goto :eof
+
+:MAIN_MENU
 cls
-echo ==============================================
-echo             ANISUB CLI (WINDOWS)
-echo ==============================================
+echo =======================================================
+echo               ANISUB CLI (WINDOWS EDITION)
+echo =======================================================
 echo [1] Tim kiem Anime (KKPhim API)
-echo [2] Lich su xem
-echo [3] Danh sach yeu thich
-echo [4] Cai dat
-echo [Q] Thoat
-echo ==============================================
-set "main_opt="
-set /p "main_opt=Chon chuc nang (1,2,3,4,Q): "
+echo [2] Xem tu Local Anidata
+echo [3] Lich su xem
+echo [4] Danh sach yeu thich
+echo [5] Cai dat
+echo [6] Thoat
+echo =======================================================
+set /p "OPT=Chon chuc nang (1-6): "
 
-if /i "%main_opt%"=="1" goto :search_kkphim
-if /i "%main_opt%"=="2" goto :show_history
-if /i "%main_opt%"=="3" goto :show_favorites
-if /i "%main_opt%"=="4" goto :show_settings
-if /i "%main_opt%"=="Q" goto :eof
-goto :main_menu
+if "%OPT%"=="1" goto :SEARCH_API
+if "%OPT%"=="2" goto :LOCAL_ANIDATA
+if "%OPT%"=="3" goto :HISTORY_MENU
+if "%OPT%"=="4" goto :FAVORITES_MENU
+if "%OPT%"=="5" goto :SETTINGS_MENU
+if "%OPT%"=="6" goto :eof
+goto :MAIN_MENU
 
-:: --- 1. SEARCH FUNCTION ---
-:search_kkphim
-cls
-echo [TIM KIEM ANIME]
-set /p "keyword=Nhap ten anime (Bo trong de quay lai): "
-if "%keyword%"=="" goto :main_menu
+:: --- CHỨC NĂNG TÌM KIẾM API ---
+:SEARCH_API
+set /p "KEYWORD=Nhap ten anime can tim: "
+if "%KEYWORD%"=="" goto :MAIN_MENU
 
-echo Dang tim kiem "%keyword%"...
-:: Encode URI (Basic text replace space with %20)
-set "safe_keyword=%keyword: =%20%"
-set "api_url=https://phimapi.com/v1/api/tim-kiem?keyword=!safe_keyword!&limit=50"
+:: URL Encode đơn giản (thay khoảng trắng bằng %20)
+set "KEYWORD_ENC=%KEYWORD: =%20%"
+echo Dang tim kiem...
 
-curl -s "%api_url%" > "%TEMP_DIR%\search_result.json"
+:: Gọi API và lưu vào file tạm
+curl -s "https://phimapi.com/v1/api/tim-kiem?keyword=%KEYWORD_ENC%&limit=20" > "%TEMP_JSON%"
 
-:: Kiem tra status
-jq -r ".status" "%TEMP_DIR%\search_result.json" > "%TEMP_DIR%\status.tmp"
-set /p status=<"%TEMP_DIR%\status.tmp"
-if not "!status!"=="success" (
+:: Kiểm tra status
+for /f "tokens=*" %%a in ('jq -r ".status" "%TEMP_JSON%"') do set "API_STATUS=%%a"
+if "%API_STATUS%" neq "success" (
     echo Khong tim thay phim hoac loi API.
     pause
-    goto :main_menu
+    goto :MAIN_MENU
 )
 
-:: Lay danh sach phim de hien thi trong fzf
-jq -r ".data.items[] | \"\(.name) (\(.year)) | \(.slug)\"" "%TEMP_DIR%\search_result.json" > "%TEMP_DIR%\fzf_list.txt"
+:: Xử lý dữ liệu tìm kiếm bằng jq và đưa vào fzf
+:: Format hiển thị: Name (Year)|Slug
+jq -r ".data.items[] | \"\(.name) (\(.year))^|^\(.slug)\"" "%TEMP_JSON%" > "%TEMP_LIST%"
 
-:: Hien thi FZF
-set "selected="
-for /f "delims=" %%i in ('type "%TEMP_DIR%\fzf_list.txt" ^| fzf --prompt="Ket qua > "') do set "selected=%%i"
+set "SELECTED_ANIME="
+for /f "delims=" %%i in ('type "%TEMP_LIST%" ^| fzf --prompt="Ket qua > " --delimiter="|" --with-nth=1') do set "SELECTED_ANIME=%%i"
 
-if "%selected%"=="" goto :main_menu
+if "%SELECTED_ANIME%"=="" goto :MAIN_MENU
 
-:: Tach lay ten va slug (dung delimiters |)
-for /f "tokens=1,2 delims=|" %%a in ("%selected%") do (
-    set "anime_name=%%a"
-    set "anime_slug=%%b"
-)
-:: Trim space (xoa khoang trang du thua)
-set "anime_name=%anime_name:~0,-1%"
-set "anime_slug=%anime_slug:~1%"
-
-goto :get_episodes
-
-:: --- 2. GET EPISODES & PLAY MENU ---
-:get_episodes
-echo Dang tai danh sach tap cho: !anime_name!...
-curl -s "https://phimapi.com/phim/!anime_slug!" > "%TEMP_DIR%\episodes.json"
-
-jq -r ".status" "%TEMP_DIR%\episodes.json" > "%TEMP_DIR%\status_ep.tmp"
-set /p status_ep=<"%TEMP_DIR%\status_ep.tmp"
-
-if "!status_ep!"=="false" (
-    echo Loi lay danh sach tap.
-    pause
-    goto :main_menu
+:: Tách lấy tên và slug
+for /f "tokens=1,2 delims=|" %%a in ("%SELECTED_ANIME%") do (
+    set "ANIME_NAME=%%a"
+    set "ANIME_SLUG=%%b"
 )
 
-:: Tao danh sach tap (Lay server dau tien)
-jq -r ".episodes[0].server_data[] | \"\(.name) | \(.link_m3u8)\"" "%TEMP_DIR%\episodes.json" > "%TEMP_DIR%\ep_list.txt"
+echo Dang tai danh sach tap phim...
+curl -s "https://phimapi.com/phim/%ANIME_SLUG%" > "%TEMP_JSON%"
 
-:select_episode
-set "selected_ep="
-for /f "delims=" %%j in ('type "%TEMP_DIR%\ep_list.txt" ^| fzf --prompt="Chon tap phim > "') do set "selected_ep=%%j"
+:: Lấy danh sách tập: TapName|Link
+jq -r ".episodes[0].server_data[] | \"\(.name)^|^\(.link_m3u8)\"" "%TEMP_JSON%" > "%TEMP_LIST%"
 
-if "%selected_ep%"=="" goto :main_menu
+:: Menu chọn tập và hành động
+:EPISODE_LOOP_API
+set "SELECTED_EP="
+for /f "delims=" %%i in ('type "%TEMP_LIST%" ^| fzf --prompt="Chon tap > " --delimiter="|" --with-nth=1') do set "SELECTED_EP=%%i"
 
-:: Tach lay ten tap va link
-for /f "tokens=1,2 delims=|" %%x in ("%selected_ep%") do (
-    set "ep_name=%%x"
-    set "ep_link=%%y"
+if "%SELECTED_EP%"=="" goto :MAIN_MENU
+
+for /f "tokens=1,2 delims=|" %%a in ("%SELECTED_EP%") do (
+    set "EP_NAME=%%a"
+    set "EP_LINK=%%b"
 )
-set "ep_name=%ep_name:~0,-1%"
-set "ep_link=%ep_link:~1%"
 
-:: Luu lich su
-call :add_history "!anime_name!" "!ep_name!" "!ep_link!"
-call :play_actions "!anime_name!" "!ep_name!" "!ep_link!"
+:: Lưu lịch sử
+call :add_to_history "%ANIME_NAME%" "%EP_NAME%" "%EP_LINK%"
+call :manage_playing "%ANIME_NAME%" "%EP_NAME%" "%EP_LINK%" "%TEMP_LIST%" "%ANIME_SLUG%"
 
-goto :select_episode
+goto :MAIN_MENU
+
+:: --- CHỨC NĂNG LOCAL ---
+:LOCAL_ANIDATA
+echo Dang kiem tra du lieu: %LOCAL_DATA_FILE%
+if not exist "%LOCAL_DATA_FILE%" (
+    echo File du lieu khong ton tai. Dang tai xuong...
+    if not exist "%SCRIPT_DIR%assets" mkdir "%SCRIPT_DIR%assets"
+    curl -L "https://raw.githubusercontent.com/NiyakiPham/anisub/refs/heads/main/assets/aniw_export_2026-01-14.csv" -o "%LOCAL_DATA_FILE%"
+    if not exist "%LOCAL_DATA_FILE%" (
+        echo Loi tai du lieu.
+        pause
+        goto :MAIN_MENU
+    )
+    echo Da tai du lieu.
+)
+
+:: Tạo danh sách anime từ CSV (giả lập awk bằng powershell cho nhanh và ổn định)
+powershell -Command "Import-Csv -Path '%LOCAL_DATA_FILE%' -Header Col1,Col2,Col3,Col4,Col5 | Select-Object -ExpandProperty Col1 | Select-Object -Unique | Out-File -Encoding utf8 '%TEMP_LIST%'"
+
+set "SEL_LOCAL="
+for /f "delims=" %%i in ('type "%TEMP_LIST%" ^| fzf --prompt="[Local] Chon Anime: "') do set "SEL_LOCAL=%%i"
+if "%SEL_LOCAL%"=="" goto :MAIN_MENU
+
+:: Lọc tập phim của anime đã chọn
+powershell -Command "Import-Csv -Path '%LOCAL_DATA_FILE%' -Header Name,Ep,Date,Link,Extra | Where-Object { $_.Name -eq '%SEL_LOCAL%' } | ForEach-Object { \"Tap \" + $_.Ep + \"|\" + $_.Link } | Out-File -Encoding utf8 '%TEMP_LIST%'"
+
+set "SEL_EP_LOCAL="
+for /f "delims=" %%i in ('type "%TEMP_LIST%" ^| fzf --prompt="Chon tap > " --delimiter="|" --with-nth=1') do set "SEL_EP_LOCAL=%%i"
+
+if "%SEL_EP_LOCAL%"=="" goto :MAIN_MENU
+
+for /f "tokens=1,2 delims=|" %%a in ("%SEL_EP_LOCAL%") do (
+    set "LEP_NAME=%%a"
+    set "LEP_LINK=%%b"
+)
+:: Trim khoảng trắng trong link nếu có
+set "LEP_LINK=%LEP_LINK: =%"
+
+call :add_to_history "%SEL_LOCAL% (Local)" "%LEP_NAME%" "%LEP_LINK%"
+call :manage_playing "%SEL_LOCAL%" "%LEP_NAME%" "%LEP_LINK%" "%TEMP_LIST%" "local_file"
+
+goto :MAIN_MENU
 
 
-:: --- PLAY & ACTIONS HANDLER ---
-:play_actions
-set "curr_anime=%~1"
-set "curr_ep=%~2"
-set "curr_link=%~3"
+:: --- MENU QUẢN LÝ PLAYER ---
+:manage_playing
+set "MP_NAME=%~1"
+set "MP_EP=%~2"
+set "MP_LINK=%~3"
+set "MP_LIST=%~4"
+set "MP_SLUG=%~5"
 
-:: Chay trinh phat (Khong cho terminal de khong bi treo)
-start "" "!PLAYER!" "!curr_link!" --force-window --title="Anisub: !curr_anime! - Tap !curr_ep!"
+:: Bắt đầu phát
+start "" "%PLAYER%" "%MP_LINK%" --title="Anisub: %MP_NAME% - %MP_EP%"
 
-:action_loop
+:CONTROL_LOOP
 cls
-echo Dang phat: !curr_anime! - Tap !curr_ep!
-echo ------------------------------------------
-echo [1] Tai tap phim nay
-echo [2] Cat video (ffmpeg)
-echo [3] Them vao yeu thich
-echo [4] Quay lai chon tap khac
-echo ------------------------------------------
-set /p "act=Chon tac vu (de trong de quay lai menu chinh): "
+echo Dang phat: %MP_NAME% - Tap %MP_EP%
+echo (Trinh phat dang chay cua so rieng)
+echo.
+echo [1] Phat tap tiep theo (Neu co trong danh sach)
+echo [2] Chon tap khac trong danh sach
+echo [3] Tai xuong tap nay
+echo [4] Cat Video (1 lan)
+echo [5] Ghep Video (Merge)
+echo [6] Them vao Yeu Thich
+echo [0] Quay lai Menu chinh
+echo.
+set /p "ACT=Chon hanh dong: "
 
-if "%act%"=="" goto :eof
-if "%act%"=="4" goto :eof
-if "%act%"=="1" call :download_video "!curr_link!" "!curr_anime! - Tap !curr_ep!"
-if "%act%"=="2" call :cut_video "!curr_link!"
-if "%act%"=="3" call :add_favorite "!curr_anime!" "!anime_slug!"
-
-goto :action_loop
-
-:: --- FEATURES FUNCTIONS ---
-
-:download_video
-set "dl_url=%~1"
-set "dl_name=%~2"
-:: Lam sach ten file (xoa ky tu dac biet)
-set "dl_name=!dl_name::=-!"
-set "dl_name=!dl_name:/=_!"
-set "dl_folder=!DOWNLOAD_DIR!\!dl_name!"
-
-if not exist "!dl_folder!" mkdir "!dl_folder!"
-
-echo Dang tai xuong: !dl_name!...
-:: Uu tien yt-dlp neu co, khong thi ffmpeg
-where yt-dlp >nul 2>nul
-if %errorlevel% equ 0 (
-    start cmd /k yt-dlp "!dl_url!" -o "!dl_folder!\!dl_name!.mp4"
-) else (
-    start cmd /k ffmpeg -i "!dl_url!" -c copy -bsf:a aac_adtstoasc "!dl_folder!\!dl_name!.mp4"
+if "%ACT%"=="1" (
+    :: Logic tự tìm tập kế tiếp hơi phức tạp trong batch, 
+    :: ta sẽ mở lại list cho user chọn nhanh
+    goto :RESELECT_IN_CONTROL
 )
-exit /b
-
-:cut_video
-set "vid_url=%~1"
-set "cut_dir=!DOWNLOAD_DIR!\cut"
-if not exist "!cut_dir!" mkdir "!cut_dir!"
-
-echo === CAT VIDEO (DANG M02 RE-ENCODE) ===
-set /p "start_time=Thoi gian bat dau (00:00:00): "
-set /p "end_time=Thoi gian ket thuc (00:00:00): "
-set "out_file=cut_%random%.mp4"
-
-echo Dang xu ly... Vui long doi cuaso ffmpeg...
-start cmd /k ffmpeg -i "!vid_url!" -ss !start_time! -to !end_time! -c:v libx264 -preset fast -crf 23 -c:a aac "!cut_dir!\!out_file!"
-exit /b
-
-:add_favorite
-set "fav_name=%~1"
-set "fav_slug=%~2"
-echo !fav_name!^|!fav_slug!>> "%FAVORITES_FILE%"
-echo Da them vao yeu thich.
-timeout /t 1 >nul
-exit /b
-
-:show_favorites
-if not exist "%FAVORITES_FILE%" (
-    echo Danh sach yeu thich trong.
-    pause
-    goto :main_menu
+if "%ACT%"=="2" goto :RESELECT_IN_CONTROL
+if "%ACT%"=="3" (
+    echo Dang tai xuong nen...
+    start /b "" call :download_video "%MP_LINK%" "%MP_NAME% - %MP_EP%"
+    timeout /t 2 >nul
+    goto :CONTROL_LOOP
 )
-set "sel_fav="
-for /f "delims=" %%k in ('type "%FAVORITES_FILE%" ^| fzf --prompt="Yeu thich > "') do set "sel_fav=%%k"
-if "%sel_fav%"=="" goto :main_menu
-
-for /f "tokens=1,2 delims=|" %%m in ("%sel_fav%") do (
-    set "anime_name=%%m"
-    set "anime_slug=%%n"
+if "%ACT%"=="4" (
+    call :cut_video_logic "%MP_LINK%"
+    goto :CONTROL_LOOP
 )
-goto :get_episodes
+if "%ACT%"=="5" (
+    call :merge_video_logic
+    goto :CONTROL_LOOP
+)
+if "%ACT%"=="6" (
+    call :add_favorite "%MP_NAME%" "%MP_SLUG%"
+    goto :CONTROL_LOOP
+)
+if "%ACT%"=="0" exit /b 0
 
-:show_history
+goto :CONTROL_LOOP
+
+:RESELECT_IN_CONTROL
+set "NEW_SEL="
+for /f "delims=" %%i in ('type "%MP_LIST%" ^| fzf --prompt="Chon tap khac: " --delimiter="|" --with-nth=1') do set "NEW_SEL=%%i"
+if "%NEW_SEL%"=="" goto :CONTROL_LOOP
+for /f "tokens=1,2 delims=|" %%a in ("%NEW_SEL%") do (
+    set "MP_EP=%%a"
+    set "MP_LINK=%%b"
+)
+call :add_to_history "%MP_NAME%" "%MP_EP%" "%MP_LINK%"
+start "" "%PLAYER%" "%MP_LINK%" --title="Anisub: %MP_NAME% - %MP_EP%"
+goto :CONTROL_LOOP
+
+
+:: --- LỊCH SỬ & YÊU THÍCH ---
+:HISTORY_MENU
 if not exist "%HISTORY_FILE%" (
     echo Lich su trong.
     pause
-    goto :main_menu
+    goto :MAIN_MENU
 )
-:: Windows khong co 'tac', nen doc truc tiep tu tren xuong (cu -> moi)
-set "sel_hist="
-for /f "delims=" %%h in ('type "%HISTORY_FILE%" ^| fzf --prompt="Lich su > "') do set "sel_hist=%%h"
-if "%sel_hist%"=="" goto :main_menu
+:: Đảo ngược file (để xem cái mới nhất) và chọn
+set "HIST_SEL="
+powershell -Command "Get-Content '%HISTORY_FILE%' | Select-Object -Last 50 | [Collections.ArrayList]::new() | ForEach-Object { $a=$_; } { [void]$_.Insert(0,$a) } { $_ } | Out-File -Encoding utf8 '%TEMP_LIST%'"
+for /f "delims=" %%i in ('type "%TEMP_LIST%" ^| fzf --prompt="Lich su > " --delimiter="|" --with-nth=1,2,3') do set "HIST_SEL=%%i"
 
-for /f "tokens=1,2,3,4 delims=|" %%a in ("%sel_hist%") do (
-    set "h_name=%%b"
-    set "h_ep=%%c"
-    set "h_link=%%d"
+if "%HIST_SEL%"=="" goto :MAIN_MENU
+for /f "tokens=1,2,3,4 delims=|" %%a in ("%HIST_SEL%") do (
+    set "H_NAME=%%b"
+    set "H_EP=%%c"
+    set "H_LINK=%%d"
 )
-:: Clean link (xoa khoang trang du neu co)
-set "h_link=%h_link: =%"
-call :play_actions "!h_name!" "!h_ep!" "!h_link!"
-goto :main_menu
+echo Phat lai: %H_NAME% - %H_EP%
+start "" "%PLAYER%" "%H_LINK%" --title="Anisub: %H_NAME%"
+goto :MAIN_MENU
 
-:add_history
-set "log_time=%date% %time%"
-set "line=!log_time!|%~1|%~2|%~3"
-echo !line!>> "%HISTORY_FILE%"
+:FAVORITES_MENU
+if not exist "%FAVORITES_FILE%" (
+    echo Chua co Anime yeu thich.
+    pause
+    goto :MAIN_MENU
+)
+set "FAV_SEL="
+for /f "delims=" %%i in ('type "%FAVORITES_FILE%" ^| fzf --prompt="Yeu thich > " --delimiter="|" --with-nth=1') do set "FAV_SEL=%%i"
+if "%FAV_SEL%"=="" goto :MAIN_MENU
+
+for /f "tokens=1,2 delims=|" %%a in ("%FAV_SEL%") do (
+    set "F_NAME=%%a"
+    set "F_SLUG=%%b"
+)
+:: Load lại tập phim từ slug yêu thích
+echo Dang lay du lieu cho: %F_NAME%...
+curl -s "https://phimapi.com/phim/%F_SLUG%" > "%TEMP_JSON%"
+jq -r ".episodes[0].server_data[] | \"\(.name)^|^\(.link_m3u8)\"" "%TEMP_JSON%" > "%TEMP_LIST%"
+call :manage_playing "%F_NAME%" "Tap Fav" "" "%TEMP_LIST%" "%F_SLUG%"
+goto :MAIN_MENU
+
+:add_favorite
+set "FNAME=%~1"
+set "FSLUG=%~2"
+findstr /C:"|%FSLUG%" "%FAVORITES_FILE%" >nul
+if %errorlevel%==0 (
+    echo Anime nay da co trong Yeu Thich.
+) else (
+    echo %FNAME%^|%FSLUG%>> "%FAVORITES_FILE%"
+    echo Da them vao Yeu Thich.
+)
+timeout /t 1 >nul
 exit /b
 
+:: --- DOWNLOAD & CUTTING ---
+:download_video
+set "DL_URL=%~1"
+set "DL_NAME=%~2"
+set "SAFE_NAME=%DL_NAME:/=-%"
+set "SAFE_NAME=%SAFE_NAME:\=-%"
+set "SAFE_NAME=%SAFE_NAME::=-%"
 
-:: --- CONFIGURATION & DEPENDENCY CHECKS ---
+:: Tạo thư mục tải
+set "DL_PATH=%DOWNLOAD_DIR%\%SAFE_NAME%"
+if not exist "%DL_PATH%" mkdir "%DL_PATH%"
+
+echo [DOWNLOAD] Bat dau tai: %SAFE_NAME%...
+where yt-dlp >nul 2>&1
+if %errorlevel%==0 (
+    yt-dlp "%DL_URL%" -o "%DL_PATH%\%SAFE_NAME%.mp4"
+) else (
+    ffmpeg -i "%DL_URL%" -c copy -bsf:a aac_adtstoasc "%DL_PATH%\%SAFE_NAME%.mp4"
+)
+echo [DOWNLOAD] Hoan tat.
+exit /b
+
+:cut_video_logic
+set "CUT_LINK=%~1"
+set "CUT_DIR=%DOWNLOAD_DIR%\cut"
+if not exist "%CUT_DIR%" mkdir "%CUT_DIR%"
+
+echo === CHE DO CAT VIDEO ===
+echo Nhap thoi gian bat dau (VD: 00:10:30)
+set /p "START_TIME=> "
+echo Nhap thoi gian ket thuc (VD: 00:11:00)
+set /p "END_TIME=> "
+
+set "OUT_NAME=cut_%random%.mp4"
+echo Dang xu ly...
+ffmpeg -i "%CUT_LINK%" -ss "%START_TIME%" -to "%END_TIME%" -c:v libx264 -preset fast -crf 23 -c:a aac "%CUT_DIR%\%OUT_NAME%" -y -hide_banner -loglevel error
+
+echo Xong. File tai: %CUT_DIR%\%OUT_NAME%
+pause
+exit /b
+
+:merge_video_logic
+set "CUT_DIR=%DOWNLOAD_DIR%\cut"
+set "MERGE_DIR=%DOWNLOAD_DIR%\merged"
+if not exist "%MERGE_DIR%" mkdir "%MERGE_DIR%"
+
+:: Tạo file list.txt cho ffmpeg
+set "LIST_TXT=%CUT_DIR%\files.txt"
+if exist "%LIST_TXT%" del "%LIST_TXT%"
+
+echo Chon cac file can ghep trong %CUT_DIR%:
+echo (Giai phap: Tat ca file .mp4 trong folder 'cut' se duoc ghep lai theo ten)
+echo An Enter de ghep toan bo, hoac Ctrl+C de huy.
+pause
+
+dir /b /on "%CUT_DIR%\*.mp4" > "%TEMP_LIST%"
+for /f "tokens=*" %%F in (%TEMP_LIST%) do (
+    echo file '%CUT_DIR%\%%F'>> "%LIST_TXT%"
+)
+
+set "OUT_NAME=merged_%random%.mp4"
+echo Dang ghep video...
+ffmpeg -f concat -safe 0 -i "%LIST_TXT%" -c copy "%MERGE_DIR%\%OUT_NAME%" -y -hide_banner -loglevel error
+echo Hoan tat: %MERGE_DIR%\%OUT_NAME%
+pause
+exit /b
+
+:: --- TIỆN ÍCH ---
+:add_to_history
+:: Arg 1: Name, Arg 2: Ep, Arg 3: Link
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set datetime=%%I
+set "TIMESTAMP=%datetime:~0,4%-%datetime:~4,2%-%datetime:~6,2% %datetime:~8,2%:%datetime:~10,2%:%datetime:~12,2%"
+echo %TIMESTAMP%^|%~1^|%~2^|%~3>> "%HISTORY_FILE%"
+exit /b
+
 :check_dependencies
-set "missing="
-where ffmpeg >nul 2>nul || set "missing=!missing! ffmpeg"
-where curl >nul 2>nul || set "missing=!missing! curl"
-where fzf >nul 2>nul || set "missing=!missing! fzf"
-where jq >nul 2>nul || set "missing=!missing! jq"
-
-if not "!missing!"=="" (
-    cls
-    echo [ERROR] Thieu cac cong cu can thiet de chay script:
-    echo ----------------------------------------------------
-    echo Cac phan mem bi thieu: !missing!
-    echo ----------------------------------------------------
-    echo [Giai phap] Cai dat bang Scoop (Recommended):
-    echo     scoop install ffmpeg curl fzf jq yt-dlp mpv
+set "MISSING=0"
+where ffmpeg >nul 2>&1 || (echo Thieu ffmpeg & set MISSING=1)
+where yt-dlp >nul 2>&1 || (echo Thieu yt-dlp & set MISSING=1)
+where jq >nul 2>&1 || (echo Thieu jq & set MISSING=1)
+where fzf >nul 2>&1 || (echo Thieu fzf & set MISSING=1)
+where curl >nul 2>&1 || (echo Thieu curl & set MISSING=1)
+if "%MISSING%"=="1" (
     echo.
-    echo Hoac cai dat thu cong va them vao PATH cua Windows.
-    echo Script se thoat.
+    echo LOI: Vui long cai dat cac cong cu tren (Googling: install ffmpeg/jq/fzf windows)
+    echo Goc y: Su dung 'Scoop' hoac 'Chocolatey' de cai dat de dang.
     pause
     exit /b 1
 )
 exit /b 0
 
-:load_config
+:ensure_config_dir
 if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%"
+if not exist "%HISTORY_FILE%" type nul > "%HISTORY_FILE%"
+if not exist "%FAVORITES_FILE%" type nul > "%FAVORITES_FILE%"
+exit /b
+
+:load_config
 if not exist "%CONFIG_FILE%" (
     echo PLAYER=%DEFAULT_PLAYER%> "%CONFIG_FILE%"
     echo DOWNLOAD_DIR=%DEFAULT_DOWNLOAD_DIR%>> "%CONFIG_FILE%"
 )
-for /f "tokens=1,2 delims==" %%A in (%CONFIG_FILE%) do (
-    set "%%A=%%B"
+for /f "tokens=1,2 delims==" %%a in (%CONFIG_FILE%) do (
+    set "%%a=%%b"
 )
-if not exist "!DOWNLOAD_DIR!" mkdir "!DOWNLOAD_DIR!"
+if not exist "%DOWNLOAD_DIR%" mkdir "%DOWNLOAD_DIR%"
 exit /b
 
-:show_settings
+:SETTINGS_MENU
 cls
-echo [CAI DAT]
-echo 1. Trinh phat video hien tai: !PLAYER!
-echo 2. Thu muc tai xuong hien tai: !DOWNLOAD_DIR!
-echo 3. Quay lai
-echo.
-set /p "sett=Chon muc can thay doi (1,2,3): "
-if "%sett%"=="1" (
-    set /p "new_player=Nhap lenh/ten trinh phat (vd: vlc, mpv): "
-    set "PLAYER=!new_player!"
-    call :save_config
-    goto :show_settings
+echo === CAI DAT ===
+echo [1] Doi trinh phat (Hien tai: %PLAYER%)
+echo [2] Doi thu muc tai (Hien tai: %DOWNLOAD_DIR%)
+echo [0] Quay lai
+set /p "SET_OPT=Chon: "
+if "%SET_OPT%"=="1" (
+    set /p "PLAYER=Nhap ten lenh trinh phat moi (vd: vlc): "
+    goto :SAVE_CFG
 )
-if "%sett%"=="2" (
-    set /p "new_dir=Nhap duong dan folder tai xuong: "
-    set "DOWNLOAD_DIR=!new_dir!"
-    if not exist "!DOWNLOAD_DIR!" mkdir "!DOWNLOAD_DIR!"
-    call :save_config
-    goto :show_settings
+if "%SET_OPT%"=="2" (
+    set /p "DOWNLOAD_DIR=Nhap duong dan (tuyet doi): "
+    goto :SAVE_CFG
 )
-if "%sett%"=="3" goto :main_menu
-goto :show_settings
+if "%SET_OPT%"=="0" goto :MAIN_MENU
+goto :SETTINGS_MENU
 
-:save_config
-(
-echo PLAYER=!PLAYER!
-echo DOWNLOAD_DIR=!DOWNLOAD_DIR!
-) > "%CONFIG_FILE%"
-echo Da luu cau hinh!
+:SAVE_CFG
+echo PLAYER=%PLAYER%> "%CONFIG_FILE%"
+echo DOWNLOAD_DIR=%DOWNLOAD_DIR%>> "%CONFIG_FILE%"
+echo Da luu cau hinh.
 timeout /t 1 >nul
-exit /b
+goto :SETTINGS_MENU
